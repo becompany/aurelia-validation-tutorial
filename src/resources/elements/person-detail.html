@@ -1,0 +1,12 @@
+<template>
+  <div class="first-name">
+    <label for="first">First name:</label>
+    <input id="first"  type="text" value.bind="person.firstName & validate"/>
+    <span class="error"></span>
+  </div>
+  <div class="last-name">
+    <label for="last">Last name:</label>
+    <input id="last" type="text" value.bind="person.lastName & validate"/>
+    <span class="error"></span>
+  </div>
+</template>

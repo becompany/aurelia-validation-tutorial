@@ -1,0 +1,13 @@
+<template>
+  <require from="resources/elements/person-detail"></require>
+  <require from="resources/elements/country-detail"></require>
+
+  <form submit.delegate="submit()" validation-renderer="simple-renderer">
+    <h1>Person</h1>
+    <person-detail person.bind="person"></person-detail>
+    <h1>Country</h1>
+    <country-detail name.bind="country"></country-detail>
+
+    <button type="submit">Submit</button>
+  </form>
+</template>
