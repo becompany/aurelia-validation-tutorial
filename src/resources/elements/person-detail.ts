@@ -1,5 +1,5 @@
 import {bindable} from "aurelia-framework";
-import {ValidationRules} from "aurelia-validatejs";
+import {ValidationRules} from "aurelia-validation";
 
 export class PersonDetail {
   @bindable
@@ -8,7 +8,7 @@ export class PersonDetail {
   public bind() {
     ValidationRules
       .ensure("firstName").required()
-      .ensure("lastName").required({ message: "^My custom error message" })
+      .ensure("lastName").required().withMessage("My custom error message")
       .on(this.person);
   }
 }

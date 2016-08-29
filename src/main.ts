@@ -1,6 +1,5 @@
 import {Aurelia} from "aurelia-framework"
 import environment from "./environment";
-import {SimpleValidationRenderer} from "./resources/validation/simple-validation-renderer";
 
 //Configure Bluebird Promises.
 //Note: You may want to use environment-specific configuration.
@@ -15,11 +14,6 @@ export function configure(aurelia: Aurelia) {
     .standardConfiguration()
     .feature("resources")
     .plugin("aurelia-validation")
-    .plugin("aurelia-validatejs");
-
-  aurelia.container.registerHandler(
-    "simple-renderer",
-    container => container.get(SimpleValidationRenderer));
 
   if (environment.debug) {
     aurelia.use.developmentLogging();

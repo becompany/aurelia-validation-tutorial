@@ -1,7 +1,12 @@
 <template>
   <div class="country-name">
-    <label for="name">Name:</label>
-    <input id="name" type="text" value.bind="name & validate"/>
-    <span class="error"></span>
+    <div>
+      <label><input type="checkbox" name="validate" checked.bind="validate">Enable validation</label>
+    </div>
+    <div>
+      <label for="name">Name:</label>
+      <input id="name" type="text" value.bind="name & validate"/>
+      <span class="error"></span>
+    </div>
   </div>
 </template>

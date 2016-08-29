@@ -1,5 +1,6 @@
-import {ValidationController, validateTrigger} from "aurelia-validation";
+import {ValidationController, validateTrigger, ValidationError} from "aurelia-validation";
 import {inject, NewInstance} from "aurelia-dependency-injection";
+import {SimpleValidationRenderer} from "./resources/validation/simple-validation-renderer";
 
 
 @inject(NewInstance.of(ValidationController))
@@ -13,15 +14,19 @@ export class App {
   public country = "";
 
   constructor(private validationController: ValidationController) {
+    this.validationController.addRenderer(new SimpleValidationRenderer());
     // trigger validations manually
     // validationController.validateTrigger = validateTrigger.manual;
   }
 
   public submit() {
-    if (this.validationController.validate().length <= 0) {
-      alert("Validation successful!");
-    } else {
-      alert("Validation failed!");
-    }
+    this.validationController.validate()
+      .then((errors: ValidationError[]) => {
+        if(errors.length <= 0) {
+          console.log("Validation successful!", errors);
+        } else {
+          console.log("Validation failed!", errors);
+        }
+      });
   }
 }
