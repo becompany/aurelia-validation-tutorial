@@ -164,7 +164,7 @@ define('resources/elements/person-detail',["require", "exports", "aurelia-framew
     exports.PersonDetail = PersonDetail;
 });
 
-define('aurelia-validation/validate-binding-behavior',["require", "exports", 'aurelia-dependency-injection', 'aurelia-task-queue', './validation-controller', './validate-trigger'], function (require, exports, aurelia_dependency_injection_1, aurelia_task_queue_1, validation_controller_1, validate_trigger_1) {
+define('aurelia-validation/validate-binding-behavior',["require", "exports", 'aurelia-dependency-injection', 'aurelia-pal', 'aurelia-task-queue', './validation-controller', './validate-trigger'], function (require, exports, aurelia_dependency_injection_1, aurelia_pal_1, aurelia_task_queue_1, validation_controller_1, validate_trigger_1) {
     "use strict";
     /**
      * Binding behavior. Indicates the bound property should be validated.
@@ -176,22 +176,27 @@ define('aurelia-validation/validate-binding-behavior',["require", "exports", 'au
         /**
         * Gets the DOM element associated with the data-binding. Most of the time it's
         * the binding.target but sometimes binding.target is an aurelia custom element,
-        * which is a javascript "class" instance, so we need to use the controller to
-        * locate the actual DOM element.
+        * or custom attribute which is a javascript "class" instance, so we need to use
+        * the controller's container to retrieve the actual DOM element.
         */
         ValidateBindingBehavior.prototype.getTarget = function (binding, view) {
             var target = binding.target;
+            // DOM element
             if (target instanceof Element) {
                 return target;
             }
-            var controller;
-            for (var id in view.controllers) {
-                controller = view.controllers[id];
+            // custom element or custom attribute
+            for (var i = 0, ii = view.controllers.length; i < ii; i++) {
+                var controller = view.controllers[i];
                 if (controller.viewModel === target) {
-                    break;
+                    var element = controller.container.get(aurelia_pal_1.DOM.Element);
+                    if (element) {
+                        return element;
+                    }
+                    throw new Error("Unable to locate target element for \"" + binding.sourceExpression + "\".");
                 }
             }
-            return controller.view.firstChild.parentNode;
+            throw new Error("Unable to locate target element for \"" + binding.sourceExpression + "\".");
         };
         ValidateBindingBehavior.prototype.bind = function (binding, source, rulesOrController, rules) {
             var _this = this;
@@ -304,14 +309,14 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
          */
         ValidationController.prototype.removeObject = function (object) {
             this.objects.delete(object);
-            this.processErrorDelta(this.errors.filter(function (error) { return error.object === object; }), []);
+            this.processErrorDelta('reset', this.errors.filter(function (error) { return error.object === object; }), []);
         };
         /**
          * Adds and renders a ValidationError.
          */
         ValidationController.prototype.addError = function (message, object, propertyName) {
             var error = new validation_error_1.ValidationError({}, message, object, propertyName);
-            this.processErrorDelta([], [error]);
+            this.processErrorDelta('validate', [], [error]);
             return error;
         };
         /**
@@ -319,7 +324,7 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
          */
         ValidationController.prototype.removeError = function (error) {
             if (this.errors.indexOf(error) !== -1) {
-                this.processErrorDelta([error], []);
+                this.processErrorDelta('reset', [error], []);
             }
         };
         /**
@@ -330,6 +335,7 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
             var _this = this;
             this.renderers.push(renderer);
             renderer.render({
+                kind: 'validate',
                 render: this.errors.map(function (error) { return ({ error: error, elements: _this.elements.get(error) }); }),
                 unrender: []
             });
@@ -342,6 +348,7 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
             var _this = this;
             this.renderers.splice(this.renderers.indexOf(renderer), 1);
             renderer.render({
+                kind: 'reset',
                 render: [],
                 unrender: this.errors.map(function (error) { return ({ error: error, elements: _this.elements.get(error) }); })
             });
@@ -435,7 +442,7 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
                 .then(function (newErrors) {
                 var predicate = _this.getInstructionPredicate(instruction);
                 var oldErrors = _this.errors.filter(predicate);
-                _this.processErrorDelta(oldErrors, newErrors);
+                _this.processErrorDelta('validate', oldErrors, newErrors);
                 if (result === _this.finishValidating) {
                     _this.validating = false;
                 }
@@ -457,7 +464,7 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
         ValidationController.prototype.reset = function (instruction) {
             var predicate = this.getInstructionPredicate(instruction);
             var oldErrors = this.errors.filter(predicate);
-            this.processErrorDelta(oldErrors, []);
+            this.processErrorDelta('reset', oldErrors, []);
         };
         /**
          * Gets the elements associated with an object and propertyName (if any).
@@ -474,9 +481,10 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
             }
             return elements;
         };
-        ValidationController.prototype.processErrorDelta = function (oldErrors, newErrors) {
+        ValidationController.prototype.processErrorDelta = function (kind, oldErrors, newErrors) {
             // prepare the instruction.
             var instruction = {
+                kind: kind,
                 render: [],
                 unrender: []
             };
@@ -532,6 +540,9 @@ define('aurelia-validation/validation-controller',["require", "exports", './vali
         * Validates the property associated with a binding.
         */
         ValidationController.prototype.validateBinding = function (binding) {
+            if (!binding.isBound) {
+                return;
+            }
             var _a = property_info_1.getPropertyInfo(binding.sourceExpression, binding.source), object = _a.object, propertyName = _a.propertyName;
             var registeredBinding = this.bindings.get(binding);
             var rules = registeredBinding ? registeredBinding.rules : undefined;
@@ -836,19 +847,21 @@ define('aurelia-validation/implementation/standard-validator',["require", "expor
             _super.call(this);
             this.messageProvider = messageProvider;
             this.lookupFunctions = resources.lookupFunctions;
+            this.getDisplayName = messageProvider.getDisplayName.bind(messageProvider);
         }
         StandardValidator.prototype.getMessage = function (rule, object, value) {
             var expression = rule.message || this.messageProvider.getMessage(rule.messageKey);
             var _a = rule.property, propertyName = _a.name, displayName = _a.displayName;
             if (displayName === null && propertyName !== null) {
-                displayName = this.messageProvider.computeDisplayName(propertyName);
+                displayName = this.messageProvider.getDisplayName(propertyName);
             }
             var overrideContext = {
                 $displayName: displayName,
                 $propertyName: propertyName,
                 $value: value,
                 $object: object,
-                $config: rule.config
+                $config: rule.config,
+                $getDisplayName: this.getDisplayName
             };
             return expression.evaluate({ bindingContext: object, overrideContext: overrideContext }, this.lookupFunctions);
         };
@@ -947,6 +960,7 @@ define('aurelia-validation/implementation/validation-messages',["require", "expo
         maxLength: "${$displayName} cannot be longer than ${$config.length} character${$config.length === 1 ? '' : 's'}.",
         minItems: "${$displayName} must contain at least ${$config.count} item${$config.count === 1 ? '' : 's'}.",
         maxItems: "${$displayName} cannot contain more than ${$config.count} item${$config.count === 1 ? '' : 's'}.",
+        equals: "${$displayName} must be ${$config.expectedValue}.",
     };
     /**
      * Retrieves validation messages and property display names.
@@ -975,7 +989,7 @@ define('aurelia-validation/implementation/validation-messages',["require", "expo
          * Override this with your own custom logic.
          * @param propertyName The property name.
          */
-        ValidationMessageProvider.prototype.computeDisplayName = function (propertyName) {
+        ValidationMessageProvider.prototype.getDisplayName = function (propertyName) {
             // split on upper-case letters.
             var words = propertyName.split(/(?=[A-Z])/).join(' ');
             // capitalize first letter.
@@ -987,7 +1001,12 @@ define('aurelia-validation/implementation/validation-messages',["require", "expo
     exports.ValidationMessageProvider = ValidationMessageProvider;
 });
 
-define('aurelia-validation/implementation/validation-parser',["require", "exports", 'aurelia-binding', 'aurelia-templating', './util'], function (require, exports, aurelia_binding_1, aurelia_templating_1, util_1) {
+var __extends = (this && this.__extends) || function (d, b) {
+    for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+    function __() { this.constructor = d; }
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+};
+define('aurelia-validation/implementation/validation-parser',["require", "exports", 'aurelia-binding', 'aurelia-templating', './util', 'aurelia-logging'], function (require, exports, aurelia_binding_1, aurelia_templating_1, util_1, LogManager) {
     "use strict";
     var ValidationParser = (function () {
         function ValidationParser(parser, bindinqLanguage) {
@@ -996,12 +1015,16 @@ define('aurelia-validation/implementation/validation-parser',["require", "export
             this.emptyStringExpression = new aurelia_binding_1.LiteralString('');
             this.nullExpression = new aurelia_binding_1.LiteralPrimitive(null);
             this.undefinedExpression = new aurelia_binding_1.LiteralPrimitive(undefined);
+            this.cache = {};
         }
         ValidationParser.prototype.coalesce = function (part) {
             // part === null || part === undefined ? '' : part
             return new aurelia_binding_1.Conditional(new aurelia_binding_1.Binary('||', new aurelia_binding_1.Binary('===', part, this.nullExpression), new aurelia_binding_1.Binary('===', part, this.undefinedExpression)), this.emptyStringExpression, new aurelia_binding_1.CallMember(part, 'toString', []));
         };
         ValidationParser.prototype.parseMessage = function (message) {
+            if (this.cache[message] !== undefined) {
+                return this.cache[message];
+            }
             var parts = this.bindinqLanguage.parseInterpolation(null, message);
             if (parts === null) {
                 return new aurelia_binding_1.LiteralString(message);
@@ -1010,21 +1033,18 @@ define('aurelia-validation/implementation/validation-parser',["require", "export
             for (var i = 1; i < parts.length; i += 2) {
                 expression = new aurelia_binding_1.Binary('+', expression, new aurelia_binding_1.Binary('+', this.coalesce(parts[i]), new aurelia_binding_1.LiteralString(parts[i + 1])));
             }
+            MessageExpressionValidator.validate(expression, message);
+            this.cache[message] = expression;
             return expression;
         };
-        ValidationParser.prototype.getFunctionBody = function (f) {
-            function removeCommentsFromSource(str) {
-                return str.replace(/(?:\/\*(?:[\s\S]*?)\*\/)|(?:([\s;])+\/\/(?:.*)$)/gm, '$1');
+        ValidationParser.prototype.getAccessorExpression = function (fn) {
+            var classic = /^function\s*\([$_\w\d]+\)\s*\{\s*return\s+[$_\w\d]+\.([$_\w\d]+)\s*;?\s*\}$/;
+            var arrow = /^[$_\w\d]+\s*=>\s*[$_\w\d]+\.([$_\w\d]+)$/;
+            var match = classic.exec(fn) || arrow.exec(fn);
+            if (match === null) {
+                throw new Error("Unable to parse accessor function:\n" + fn);
             }
-            var s = removeCommentsFromSource(f.toString());
-            return s.substring(s.indexOf('{') + 1, s.lastIndexOf('}'));
-        };
-        ValidationParser.prototype.getAccessorExpression = function (f) {
-            var body = this.getFunctionBody(f).trim();
-            body = body.replace(/^['"]use strict['"];/, '').trim();
-            body = body.substr('return'.length).trim();
-            body = body.replace(/;$/, '');
-            return this.parser.parse(body);
+            return this.parser.parse(match[1]);
         };
         ValidationParser.prototype.parseProperty = function (property) {
             var accessor;
@@ -1032,7 +1052,7 @@ define('aurelia-validation/implementation/validation-parser',["require", "export
                 accessor = this.parser.parse(property);
             }
             else {
-                accessor = this.getAccessorExpression(property);
+                accessor = this.getAccessorExpression(property.toString());
             }
             if (accessor instanceof aurelia_binding_1.AccessScope
                 || accessor instanceof aurelia_binding_1.AccessMember && accessor.object instanceof aurelia_binding_1.AccessScope) {
@@ -1047,12 +1067,34 @@ define('aurelia-validation/implementation/validation-parser',["require", "export
         return ValidationParser;
     }());
     exports.ValidationParser = ValidationParser;
+    var MessageExpressionValidator = (function (_super) {
+        __extends(MessageExpressionValidator, _super);
+        function MessageExpressionValidator(originalMessage) {
+            _super.call(this, []);
+            this.originalMessage = originalMessage;
+        }
+        MessageExpressionValidator.validate = function (expression, originalMessage) {
+            var visitor = new MessageExpressionValidator(originalMessage);
+            expression.accept(visitor);
+        };
+        MessageExpressionValidator.prototype.visitAccessScope = function (access) {
+            if (access.ancestor !== 0) {
+                throw new Error('$parent is not permitted in validation message expressions.');
+            }
+            if (['displayName', 'propertyName', 'value', 'object', 'config', 'getDisplayName'].indexOf(access.name) !== -1) {
+                LogManager.getLogger('aurelia-validation')
+                    .warn("Did you mean to use \"$" + access.name + "\" instead of \"" + access.name + "\" in this validation message template: \"" + this.originalMessage + "\"?");
+            }
+        };
+        return MessageExpressionValidator;
+    }(aurelia_binding_1.Unparser));
+    exports.MessageExpressionValidator = MessageExpressionValidator;
 });
 
 define('aurelia-validation/implementation/util',["require", "exports"], function (require, exports) {
     "use strict";
     function isString(value) {
-        return toString.call(value) === '[object String]';
+        return Object.prototype.toString.call(value) === '[object String]';
     }
     exports.isString = isString;
 });
@@ -1215,6 +1257,13 @@ define('aurelia-validation/implementation/validation-rules',["require", "exports
         FluentRuleCustomizer.prototype.maxItems = function (count) {
             return this.fluentRules.maxItems(count);
         };
+        /**
+         * Applies the "equals" validation rule to the property.
+         * null, undefined and empty-string values are considered valid.
+         */
+        FluentRuleCustomizer.prototype.equals = function (expectedValue) {
+            return this.fluentRules.equals(expectedValue);
+        };
         return FluentRuleCustomizer;
     }());
     exports.FluentRuleCustomizer = FluentRuleCustomizer;
@@ -1326,6 +1375,14 @@ define('aurelia-validation/implementation/validation-rules',["require", "exports
         FluentRules.prototype.maxItems = function (count) {
             return this.satisfies(function (value) { return value === null || value === undefined || value.length <= count; }, { count: count })
                 .withMessageKey('maxItems');
+        };
+        /**
+         * Applies the "equals" validation rule to the property.
+         * null and undefined values are considered valid.
+         */
+        FluentRules.prototype.equals = function (expectedValue) {
+            return this.satisfies(function (value) { return value === null || value === undefined || value === '' || value === expectedValue; }, { expectedValue: expectedValue })
+                .withMessageKey('equals');
         };
         FluentRules.customRules = {};
         return FluentRules;
